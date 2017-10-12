@@ -67,7 +67,7 @@ class Stock(object):
 
     @classmethod
     def value_get(cls, code, code_index):
-        slice_num, value_num = 21, 3
+        slice_num, value_num, diff, percent = 21, 3, 0, 0
         name, now = u'——无——', u'  ——无——'
         if code in ['s_sh000001', 's_sz399001']:
             slice_num = 23
@@ -75,9 +75,15 @@ class Stock(object):
         r = requests.get("http://hq.sinajs.cn/list=%s" % (code,))
         res = r.text.split(',')
         if len(res) > 1:
-            name, now = r.text.split(',')[0][slice_num:], r.text.split(',')[value_num]
-        return code_index, name + ' ' + now
+            name, now = r.text.split(',')[0][slice_num:], "%.2f" % float(r.text.split(',')[value_num])
+            if code in ['s_sh000001', 's_sz399001']:
+                diff = float(r.text.split(',')[2])
+                percent = float(r.text.split(',')[3])
+            else:
+                diff = float(r.text.split(',')[3]) - float(r.text.split(',')[2])
+                percent = diff / float(r.text.split(',')[2]) * 100
 
+        return code_index, name + ' ' + now +  ' ' + ("%.2f" % diff) + ' ' + ("%.2f" % percent) + '%'
 
 if __name__ == '__main__':
     parser = OptionParser(description="Query the stock's value.", usage="%prog [-c] [-s] [-t]", version="%prog 1.0")
