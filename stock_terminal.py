@@ -83,7 +83,7 @@ class Stock(object):
                 diff = float(r.text.split(',')[3]) - float(r.text.split(',')[2])
                 percent = diff / float(r.text.split(',')[2]) * 100
 
-        return code_index, name + ' ' + now +  ' ' + ("%.2f" % diff) + ' ' + ("%.2f" % percent) + '%'
+        return code_index, name + ' ' + now +  ' ' + ("%.2f" % diff) + ' ' + ("%.2f" % percent) + '%' + time.strftime(" %H:%M:%S", time.localtime()) 
 
 if __name__ == '__main__':
     parser = OptionParser(description="Query the stock's value.", usage="%prog [-c] [-s] [-t]", version="%prog 1.0")
