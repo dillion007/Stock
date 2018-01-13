@@ -35,6 +35,8 @@ class Worker(threading.Thread):
                 print '***** start *****'
                 for obj in res:
                     print obj[1]
+                for message in send_info:
+                    print message
                 print '***** end *****\n'
             self.work_queue.task_done()
 
