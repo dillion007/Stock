@@ -16,6 +16,7 @@ from optparse import OptionParser
 
 class Worker(threading.Thread):
     """多线程获取"""
+
     def __init__(self, work_queue, result_queue):
         threading.Thread.__init__(self)
         self.work_queue = work_queue
@@ -24,11 +25,12 @@ class Worker(threading.Thread):
 
     def run(self):
         while True:
-            func, arg, code_index = self.work_queue.get()
-            res = func(arg, code_index)
+            func, arg, code_index, change_percent, send_info = self.work_queue.get()
+            res = func(arg, code_index, change_percent, send_info)
             self.result_queue.put(res)
             if self.result_queue.full():
-                res = sorted([self.result_queue.get() for i in range(self.result_queue.qsize())], key=lambda s: s[0], reverse=True)
+                res = sorted([self.result_queue.get() for i in range(self.result_queue.qsize())], key=lambda s: s[0],
+                             reverse=True)
                 res.insert(0, ('0', u'名称     股价'))
                 print '***** start *****'
                 for obj in res:
@@ -40,10 +42,12 @@ class Worker(threading.Thread):
 class Stock(object):
     """股票实时价格获取"""
 
-    def __init__(self, code, thread_num):
+    def __init__(self, code, thread_num, percent):
         self.code = code
         self.work_queue = Queue()
         self.threads = []
+        self.changePercent = percent
+        self.send_info = set()
         self.__init_thread_poll(thread_num)
 
     def __init_thread_poll(self, thread_num):
@@ -53,12 +57,12 @@ class Stock(object):
         for i in range(thread_num):
             self.threads.append(Worker(self.work_queue, self.result_queue))
 
-    def __add_work(self, stock_code, code_index):
-        self.work_queue.put((self.value_get, stock_code, code_index))
+    def __add_work(self, stock_code, code_index, change_percent, send_info):
+        self.work_queue.put((self.value_get, stock_code, code_index, change_percent, send_info))
 
     def del_params(self):
         for obj in self.params:
-            self.__add_work(obj, self.params.index(obj))
+            self.__add_work(obj, self.params.index(obj), self.changePercent, self.send_info)
 
     def wait_all_complete(self):
         for thread in self.threads:
@@ -66,7 +70,7 @@ class Stock(object):
                 thread.join()
 
     @classmethod
-    def value_get(cls, code, code_index):
+    def value_get(cls, code, code_index, change_percent, send_info):
         slice_num, value_num, diff, percent = 21, 3, 0, 0
         name, now = u'——无——', u'  ——无——'
         if code in ['s_sh000001', 's_sz399001']:
@@ -74,6 +78,7 @@ class Stock(object):
             value_num = 1
         r = requests.get("http://hq.sinajs.cn/list=%s" % (code,))
         res = r.text.split(',')
+        diff = 0.0
         if len(res) > 1:
             name, now = r.text.split(',')[0][slice_num:], "%.2f" % float(r.text.split(',')[value_num])
             if code in ['s_sh000001', 's_sz399001']:
@@ -83,7 +88,25 @@ class Stock(object):
                 diff = float(r.text.split(',')[3]) - float(r.text.split(',')[2])
                 percent = diff / float(r.text.split(',')[2]) * 100
 
-        return code_index, name + ' ' + now +  ' ' + ("%.2f" % diff) + ' ' + ("%.2f" % percent) + '%' + time.strftime(" %H:%M:%S", time.localtime()) 
+        messages = set()
+        if percent > change_percent:
+            message = u'%s 涨幅超过%.2f%%: %.2f%%' % (name, change_percent, percent)
+            if message not in send_info:
+                send_info.add(message)
+                messages.add(message)
+        elif percent < -change_percent:
+            message = u'%s 跌幅超过%.2f%%: %.2f%%' % (name, change_percent, percent)
+            if message not in send_info:
+                send_info.add(message)
+                messages.add(message)
+
+        for send in messages:
+            """这里发送微信消息"""
+            print send
+
+        return code_index, name + ' ' + now + ' ' + ("%.2f" % diff) + ' ' + ("%.2f" % percent) + '%' + time.strftime(
+            " %H:%M:%S", time.localtime())
+
 
 if __name__ == '__main__':
     parser = OptionParser(description="Query the stock's value.", usage="%prog [-c] [-s] [-t]", version="%prog 1.0")
@@ -93,13 +116,16 @@ if __name__ == '__main__':
                       help='How long does it take to check one more time.')
     parser.add_option('-t', '--thread-num', dest='thread_num', default=3, type='int',
                       help="thread num.")
+    parser.add_option('-p', '--stock-change-percent', dest='percent', default=1.0, type="float",
+                      help='The stock change percent that you should know.')
     options, args = parser.parse_args(args=sys.argv[1:])
 
     assert options.codes, "Please enter the stock code!"  # 是否输入股票代码
     if filter(lambda s: s[:-6] not in ('sh', 'sz', 's_sh', 's_sz'), options.codes.split(',')):  # 股票代码输入是否正确
         raise ValueError
 
-    stock = Stock(options.codes, options.thread_num)
+    stock = Stock(options.codes, options.thread_num, options.percent)
+    # stock = Stock('sz002415', 3, 1.0)
 
     while True:
         stock.del_params()
