@@ -15,11 +15,12 @@
         python stock_terminal.py -h
     设置查询代码（必传）   -c   
     设置查询时间间隔（默认6秒）   -s   
-    设置线程数（默认3）（如果有需要）   -t    
+    设置线程数（默认3）（如果有需要）   -t
+    设置涨跌幅提醒（默认1.0%） -p
     
     查询 智慧农业 sz000816
     例如:
-        python stock_terminal.py -c sz000816 -t 4 -s 3
+        python stock_terminal.py -c sz000816 -t 4 -s 3 -p 1.0
     
     支持查询多个股票
     例如:
