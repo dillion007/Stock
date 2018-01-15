@@ -102,9 +102,15 @@ class Stock(object):
                 send_info.add(message)
                 messages.add(message)
 
+        if float(now).is_integer():
+            message = u'%s 到达整数关口: %s' % (name, now)
+            if message not in send_info:
+                send_info.add(message)
+                messages.add(message)
+
         for send in messages:
             """这里发送微信消息"""
-            print send
+            requests.get(u"http://127.0.0.1:3000/openwx/send_friend_message?displayname=苍穹&content=%s" % (send,))
 
         return code_index, name + ' ' + now + ' ' + ("%.2f" % diff) + ' ' + ("%.2f" % percent) + '%' + time.strftime(
             " %H:%M:%S", time.localtime())
@@ -127,7 +133,7 @@ if __name__ == '__main__':
         raise ValueError
 
     stock = Stock(options.codes, options.thread_num, options.percent)
-    # stock = Stock('sz002415', 3, 1.0)
+    # stock = Stock('sz002415,sh601288', 3, 1.0)
 
     while True:
         stock.del_params()
