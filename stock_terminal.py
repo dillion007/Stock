@@ -7,6 +7,7 @@ __author__ = 'felix'
 
 import requests
 import time
+import datetime
 import sys
 import threading
 
@@ -66,6 +67,9 @@ class Stock(object):
         for obj in self.params:
             self.__add_work(obj, self.params.index(obj), self.changePercent, self.send_info)
 
+    def clear_message(self):
+        self.send_info.clear()
+
     def wait_all_complete(self):
         for thread in self.threads:
             if thread.isAlive():
@@ -92,18 +96,31 @@ class Stock(object):
 
         messages = set()
         if percent > change_percent:
-            message = u'%s 涨幅超过%.2f%%: %.2f%%' % (name, change_percent, percent)
+            message = u'%s 涨幅超过%.2f%%' % (name, change_percent)
             if message not in send_info:
                 send_info.add(message)
+                message += ': %.2f%%' % percent
                 messages.add(message)
         elif percent < -change_percent:
-            message = u'%s 跌幅超过%.2f%%: %.2f%%' % (name, change_percent, percent)
+            message = u'%s 跌幅超过%.2f%%' % (name, change_percent)
+            if message not in send_info:
+                send_info.add(message)
+                message += ': %.2f%%' % percent
+                messages.add(message)
+
+        if float(now).is_integer():
+            message = u'%s 到达整数关口: %s (%.2f%%)' % (name, now, percent)
             if message not in send_info:
                 send_info.add(message)
                 messages.add(message)
 
-        if float(now).is_integer():
-            message = u'%s 到达整数关口: %s' % (name, now)
+        if datetime.datetime.now().time() > datetime.time(hour=15):
+            message = u'晚间收盘--%s: %s (%.2f%%)' % (name, now, percent)
+            if message not in send_info:
+                send_info.add(message)
+                messages.add(message)
+        elif datetime.time(hour=11, minute=30) < datetime.datetime.now().time() < datetime.time(hour=13, minute=00):
+            message = u'午间收盘--%s: %s (%.2f%%)' % (name, now, percent)
             if message not in send_info:
                 send_info.add(message)
                 messages.add(message)
@@ -128,13 +145,23 @@ if __name__ == '__main__':
                       help='The stock change percent that you should know.')
     options, args = parser.parse_args(args=sys.argv[1:])
 
-    assert options.codes, "Please enter the stock code!"  # 是否输入股票代码
-    if filter(lambda s: s[:-6] not in ('sh', 'sz', 's_sh', 's_sz'), options.codes.split(',')):  # 股票代码输入是否正确
-        raise ValueError
+    # assert options.codes, "Please enter the stock code!"  # 是否输入股票代码
+    # if filter(lambda s: s[:-6] not in ('sh', 'sz', 's_sh', 's_sz'), options.codes.split(',')):  # 股票代码输入是否正确
+    #     raise ValueError
 
-    stock = Stock(options.codes, options.thread_num, options.percent)
-    # stock = Stock('sz002415,sh601288', 3, 1.0)
+    # stock = Stock(options.codes, options.thread_num, options.percent)
+    stock = Stock('sz002415,sh601288', 3, 1.0)
 
     while True:
+        if datetime.datetime.today().isoweekday() > 5:
+            continue
+        if datetime.datetime.now().time() > datetime.time(hour=15, minute=5):
+            stock.clear_message()
+            continue
+        elif datetime.datetime.now().time() < datetime.time(hour=9, minute=25):
+            continue
+        elif datetime.time(hour=11, minute=35) < datetime.datetime.now().time() < datetime.time(hour=12, minute=55):
+            continue
+
         stock.del_params()
         time.sleep(options.sleep_time)
