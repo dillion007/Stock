@@ -34,11 +34,28 @@ class Worker(threading.Thread):
                              reverse=True)
                 res.insert(0, ('0', u'名称     股价'))
                 print '***** start *****'
+
+                price_md = 0
+                price_gl = 0
                 for obj in res:
                     print obj[1]
-                for message in send_info:
-                    print message
+                    params = obj[1].split(' ')
+                    if params[0] == u'格力电器':
+                        price_gl = float(params[1])
+                    elif params[0] == u'美的集团':
+                        price_md = float(params[1])
+
+                if price_md != 0 and price_gl != 0:
+                    delta = (price_md - price_gl) / price_gl * 100
+                    print u'美的比格力多%.2f%%' % delta
+                    if 5 > delta > 0:
+                        requests.get(u"http://127.0.0.1:3000/openwx/send_friend_message?displayname=苍穹&content=%s" % (
+                            u'美的比格力多%.2f%%，买美的' % delta,))
+                    elif delta > 15:
+                        requests.get(u"http://127.0.0.1:3000/openwx/send_friend_message?displayname=苍穹&content=%s" % (
+                            u'美的比格力多%.2f%%，买格力' % delta,))
                 print '***** end *****\n'
+
             self.work_queue.task_done()
 
 
@@ -150,7 +167,7 @@ if __name__ == '__main__':
     #     raise ValueError
 
     # stock = Stock(options.codes, options.thread_num, options.percent)
-    stock = Stock('sz002415,sh601288', 3, 1.0)
+    stock = Stock('sz002415,sh601288,sz000651,sz000333', 3, 1.0)
 
     while True:
         if datetime.datetime.today().isoweekday() > 5:
