@@ -10,9 +10,12 @@ import time
 import datetime
 import sys
 import threading
+import traceback
+import logging
 
-from Queue import Queue
+from queue import Queue
 from optparse import OptionParser
+from chinese_calendar import is_workday, is_holiday
 
 
 class Worker(threading.Thread):
@@ -25,6 +28,8 @@ class Worker(threading.Thread):
         self.start()
 
     def run(self):
+        messages = set()
+
         while True:
             func, arg, code_index, change_percent, send_info = self.work_queue.get()
             res = func(arg, code_index, change_percent, send_info)
@@ -32,29 +37,20 @@ class Worker(threading.Thread):
             if self.result_queue.full():
                 res = sorted([self.result_queue.get() for i in range(self.result_queue.qsize())], key=lambda s: s[0],
                              reverse=True)
-                res.insert(0, ('0', u'名称     股价'))
-                print '***** start *****'
+                res.insert(0, ('0', 0, u'名称     股价'))
+                print('***** start *****')
 
-                price_md = 0
-                price_gl = 0
+                # price_md = 0
+                # price_gl = 0
                 for obj in res:
-                    print obj[1]
-                    params = obj[1].split(' ')
-                    if params[0] == u'格力电器':
-                        price_gl = float(params[1])
-                    elif params[0] == u'美的集团':
-                        price_md = float(params[1])
+                    if obj[1] > 0:
+                        print("\033[0;31m%s\033[0m" % obj[2])
+                    elif obj[1] < 0:
+                        print("\033[0;32m%s\033[0m" % obj[2])
+                    else:
+                        print(obj[2])
 
-                if price_md != 0 and price_gl != 0:
-                    delta = (price_md - price_gl) / price_gl * 100
-                    print u'美的比格力多%.2f%%' % delta
-                    if 5 > delta > 0:
-                        requests.get(u"http://127.0.0.1:3000/openwx/send_friend_message?displayname=苍穹&content=%s" % (
-                            u'美的比格力多%.2f%%，买美的' % delta,))
-                    elif delta > 15:
-                        requests.get(u"http://127.0.0.1:3000/openwx/send_friend_message?displayname=苍穹&content=%s" % (
-                            u'美的比格力多%.2f%%，买格力' % delta,))
-                print '***** end *****\n'
+                print('***** end *****')
 
             self.work_queue.task_done()
 
@@ -63,6 +59,7 @@ class Stock(object):
     """股票实时价格获取"""
 
     def __init__(self, code, thread_num, percent):
+        self.clear_time = time.time()
         self.code = code
         self.work_queue = Queue()
         self.threads = []
@@ -85,6 +82,9 @@ class Stock(object):
             self.__add_work(obj, self.params.index(obj), self.changePercent, self.send_info)
 
     def clear_message(self):
+        if time.time() - self.clear_time < 60:
+            return
+        self.clear_time = time.time()
         self.send_info.clear()
 
     def wait_all_complete(self):
@@ -99,54 +99,68 @@ class Stock(object):
         if code in ['s_sh000001', 's_sz399001']:
             slice_num = 23
             value_num = 1
-        r = requests.get("http://hq.sinajs.cn/list=%s" % (code,))
-        res = r.text.split(',')
-        diff = 0.0
-        if len(res) > 1:
-            name, now = r.text.split(',')[0][slice_num:], "%.2f" % float(r.text.split(',')[value_num])
-            if code in ['s_sh000001', 's_sz399001']:
-                diff = float(r.text.split(',')[2])
-                percent = float(r.text.split(',')[3])
-            else:
-                diff = float(r.text.split(',')[3]) - float(r.text.split(',')[2])
-                percent = diff / float(r.text.split(',')[2]) * 100
+        try:
+            response = ""
 
-        messages = set()
-        if percent > change_percent:
-            message = u'%s 涨幅超过%.2f%%' % (name, change_percent)
-            if message not in send_info:
-                send_info.add(message)
-                message += ': %.2f%%' % percent
-                messages.add(message)
-        elif percent < -change_percent:
-            message = u'%s 跌幅超过%.2f%%' % (name, change_percent)
-            if message not in send_info:
-                send_info.add(message)
-                message += ': %.2f%%' % percent
-                messages.add(message)
+            while response == "":
+                r = requests.get("http://hq.sinajs.cn/list=%s" % (code,))
+                response = r.text
+                if response == "":
+                    print("state: {}, try again {}".format(r.status_code, code))
 
-        if float(now).is_integer():
-            message = u'%s 到达整数关口: %s (%.2f%%)' % (name, now, percent)
-            if message not in send_info:
-                send_info.add(message)
-                messages.add(message)
+            res = response.split(',')
+            diff = 0.0
+            if len(res) > 1:
+                name, now = res[0][slice_num:], "%.3f" % float(res[value_num])
+                if code in ['s_sh000001', 's_sz399001']:
+                    diff = float(res[2])
+                    percent = float(res[3])
+                else:
+                    diff = float(res[3]) - float(res[2])
+                    percent = diff / float(res[2]) * 100
 
-        if datetime.datetime.now().time() > datetime.time(hour=15):
-            message = u'晚间收盘--%s: %s (%.2f%%)' % (name, now, percent)
-            if message not in send_info:
-                send_info.add(message)
-                messages.add(message)
-        elif datetime.time(hour=11, minute=30) < datetime.datetime.now().time() < datetime.time(hour=13, minute=00):
-            message = u'午间收盘--%s: %s (%.2f%%)' % (name, now, percent)
-            if message not in send_info:
-                send_info.add(message)
-                messages.add(message)
+            messages = set()
+            if percent > change_percent:
+                message = u'%s 涨幅超过%.2f%%' % (name, change_percent)
+                if message not in send_info:
+                    send_info.add(message)
+                    message += ': %.2f%%' % percent
+                    messages.add(message)
+            elif percent < -change_percent:
+                message = u'%s 跌幅超过%.2f%%' % (name, change_percent)
+                if message not in send_info:
+                    send_info.add(message)
+                    message += ': %.2f%%' % percent
+                    messages.add(message)
 
-        for send in messages:
-            """这里发送微信消息"""
-            requests.get(u"http://127.0.0.1:3000/openwx/send_friend_message?displayname=苍穹&content=%s" % (send,))
+            if float(now).is_integer():
+                message = u'%s 到达整数关口: %s (%.2f%%)' % (name, now, percent)
+                if message not in send_info:
+                    send_info.add(message)
+                    messages.add(message)
 
-        return code_index, name + ' ' + now + ' ' + ("%.2f" % diff) + ' ' + ("%.2f" % percent) + '%' + time.strftime(
+            if datetime.datetime.now().time() > datetime.time(hour=15):
+                message = u'晚间收盘--%s: %s (%.2f%%)' % (name, now, percent)
+                if message not in send_info:
+                    send_info.add(message)
+                    messages.add(message)
+            elif datetime.time(hour=11, minute=30) < datetime.datetime.now().time() < datetime.time(hour=13,
+                                                                                                    minute=00):
+                message = u'午间收盘--%s: %s (%.2f%%)' % (name, now, percent)
+                if message not in send_info:
+                    send_info.add(message)
+                    messages.add(message)
+
+            for send in messages:
+                """这里发送微信消息"""
+                requests.get(
+                    u"http://127.0.0.1:3000/openwx/send_friend_message?displayname=苍穹&content=%s" % (send,))
+
+        except Exception as e:
+            logging.exception(e)
+
+        return code_index, diff, name + ' ' + now + ' ' + ("%.2f" % diff) + ' ' + (
+                "%.2f" % percent) + '%' + time.strftime(
             " %H:%M:%S", time.localtime())
 
 
@@ -167,18 +181,26 @@ if __name__ == '__main__':
     #     raise ValueError
 
     # stock = Stock(options.codes, options.thread_num, options.percent)
-    stock = Stock('sz002415,sh601288,sz000651,sz000333', 3, 1.0)
+    stock = Stock('sz159949,sz002142,sh600809,sh600111,sz000596,sz000878,sh600549', 3, 1.0)
 
     while True:
         if datetime.datetime.today().isoweekday() > 5:
             continue
+        elif is_holiday(datetime.datetime.today()):
+            continue
         if datetime.datetime.now().time() > datetime.time(hour=15, minute=5):
-            stock.clear_message()
+            # stock.clear_message()
             continue
-        elif datetime.datetime.now().time() < datetime.time(hour=9, minute=25):
-            continue
+        # 中午不更新数据
         elif datetime.time(hour=11, minute=35) < datetime.datetime.now().time() < datetime.time(hour=12, minute=55):
             continue
+        # 休市不更新数据
+        elif datetime.datetime.now().time() < datetime.time(hour=9, minute=25):
+            continue
+        # 每半个小时 清理数据
+        elif datetime.datetime.now().minute in {0, 30}:
+            stock.clear_message()
 
         stock.del_params()
+
         time.sleep(options.sleep_time)
